@@ -29,13 +29,15 @@ function getShoeSize(mm: number): string {
   return "UK 10+";
 }
 
-function getInstruction(step: number): string {
+function getInstruction(step: number, marking: boolean): string {
+  if (!marking) return "Scroll & adjust image. Tap “Start Marking” when ready.";
+
   const steps = [
     "Step 1: Tap LEFT edge of A4 paper",
     "Step 2: Tap RIGHT edge of A4 paper",
     "Step 3: Tap TOE of foot",
     "Step 4: Tap HEEL of foot",
-    "Measurement completed ✅",
+    "Measurement complete ✅",
   ];
   return steps[step] ?? "";
 }
@@ -48,6 +50,7 @@ export default function Home() {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [points, setPoints] = useState<Point[]>([]);
   const [result, setResult] = useState<Result | null>(null);
+  const [isMarking, setIsMarking] = useState<boolean>(false);
 
   /* ---------- IMAGE UPLOAD ---------- */
 
@@ -65,20 +68,23 @@ export default function Home() {
 
       canvas.width = img.width;
       canvas.height = img.height;
-
       ctx.drawImage(img, 0, 0);
+
       setImage(img);
       setPoints([]);
       setResult(null);
+      setIsMarking(false);
     };
 
     img.src = URL.createObjectURL(file);
   }
 
-  /* ---------- POINTER (MOBILE + DESKTOP) ---------- */
+  /* ---------- POINTER HANDLING ---------- */
 
   function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>): void {
-    if (!image || points.length >= 4) return;
+    if (!isMarking || !image || points.length >= 4) return;
+
+    e.preventDefault();
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -92,6 +98,7 @@ export default function Home() {
     if (!ctx) return;
 
     ctx.fillStyle = points.length < 2 ? "#2563eb" : "#dc2626";
+
     ctx.beginPath();
     ctx.arc(x, y, 7, 0, Math.PI * 2);
     ctx.fill();
@@ -99,21 +106,23 @@ export default function Home() {
     setPoints((prev) => [...prev, { x, y }]);
   }
 
-  /* ---------- CALCULATION ---------- */
+  /* ---------- AUTO STOP MARKING ---------- */
 
   useEffect(() => {
-    if (points.length !== 4) return;
+    if (points.length === 4) {
+      setIsMarking(false);
 
-    const paperWidthPx = distance(points[0], points[1]);
-    const footPx = distance(points[2], points[3]);
+      const paperWidthPx = distance(points[0], points[1]);
+      const footPx = distance(points[2], points[3]);
 
-    const mmPerPixel = 210 / paperWidthPx;
-    const footMM = footPx * mmPerPixel;
+      const mmPerPixel = 210 / paperWidthPx;
+      const footMM = footPx * mmPerPixel;
 
-    setResult({
-      mm: footMM.toFixed(1),
-      size: getShoeSize(footMM),
-    });
+      setResult({
+        mm: footMM.toFixed(1),
+        size: getShoeSize(footMM),
+      });
+    }
   }, [points]);
 
   /* ---------- RESET ---------- */
@@ -129,6 +138,7 @@ export default function Home() {
 
     setPoints([]);
     setResult(null);
+    setIsMarking(false);
   }
 
   /* ================= UI ================= */
@@ -147,8 +157,8 @@ export default function Home() {
       <p
         style={{
           textAlign: "center",
-          color: "#555",
           fontSize: 14,
+          color: "#555",
         }}
       >
         Print A4 paper at <b>100%</b>, place foot, take top photo
@@ -167,7 +177,7 @@ export default function Home() {
           fontSize: 14,
         }}
       >
-        {getInstruction(points.length)}
+        {getInstruction(points.length, isMarking)}
       </div>
 
       {/* Upload */}
@@ -182,36 +192,66 @@ export default function Home() {
         }}
       />
 
-      {/* Canvas */}
-      <canvas
-        ref={canvasRef}
-        onPointerDown={handlePointerDown}
+      {/* Controls */}
+      <div
         style={{
-          width: "100%",
-          border: "1px solid #ddd",
-          borderRadius: 10,
-          touchAction: "none",
-          background: "#fafafa",
-        }}
-      />
-
-      {/* Reset */}
-      <button
-        onClick={resetMeasurement}
-        style={{
-          width: "100%",
-          marginTop: 12,
-          padding: 12,
-          borderRadius: 8,
-          background: "#111827",
-          color: "#fff",
-          border: "none",
-          fontSize: 15,
-          cursor: "pointer",
+          display: "flex",
+          gap: 8,
+          marginBottom: 10,
         }}
       >
-        Reset Measurement
-      </button>
+        <button
+          onClick={() => setIsMarking(true)}
+          disabled={!image || isMarking}
+          style={{
+            flex: 1,
+            padding: 12,
+            borderRadius: 8,
+            background: isMarking ? "#2563eb" : "#e5e7eb",
+            color: isMarking ? "#fff" : "#000",
+            border: "none",
+            fontWeight: 600,
+          }}
+        >
+          {isMarking ? "Marking Enabled" : "Start Marking"}
+        </button>
+
+        <button
+          onClick={resetMeasurement}
+          style={{
+            flex: 1,
+            padding: 12,
+            borderRadius: 8,
+            background: "#111827",
+            color: "#fff",
+            border: "none",
+            fontWeight: 600,
+          }}
+        >
+          Reset
+        </button>
+      </div>
+
+      {/* Canvas Container */}
+      <div
+        style={{
+          maxHeight: "65vh",
+          overflow: "auto",
+          borderRadius: 10,
+          border: "1px solid #ddd",
+        }}
+      >
+        <canvas
+          ref={canvasRef}
+          onPointerDown={handlePointerDown}
+          style={{
+            width: "100%",
+            display: "block",
+            background: "#fafafa",
+            touchAction: isMarking ? "none" : "pan-y",
+          }}
+        />
+      </div>
 
       {/* Result */}
       {result && (
