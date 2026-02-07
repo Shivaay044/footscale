@@ -4,20 +4,15 @@ import { useEffect, useRef, useState } from "react";
 
 /* ================= TYPES ================= */
 
-type Point = {
-  x: number;
-  y: number;
-};
-
-type Result = {
-  mm: string;
-  size: string;
-};
+type Point = { x: number; y: number };
+type Result = { mm: string; size: string };
 
 /* ================= HELPERS ================= */
 
-function distance(p1: Point, p2: Point): number {
-  return Math.hypot(p2.x - p1.x, p2.y - p1.y);
+const A4_WIDTH_MM = 210;
+
+function distance(a: Point, b: Point): number {
+  return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
 function getShoeSize(mm: number): string {
@@ -30,16 +25,17 @@ function getShoeSize(mm: number): string {
 }
 
 function getInstruction(step: number, marking: boolean): string {
-  if (!marking) return "Scroll & adjust image. Tap “Start Marking” when ready.";
+  if (!marking) return "Zoom & pan image. Tap “Start Marking” when ready.";
 
-  const steps = [
-    "Step 1: Tap LEFT edge of A4 paper",
-    "Step 2: Tap RIGHT edge of A4 paper",
-    "Step 3: Tap TOE of foot",
-    "Step 4: Tap HEEL of foot",
-    "Measurement complete ✅",
-  ];
-  return steps[step] ?? "";
+  return (
+    [
+      "Tap LEFT edge of A4 paper",
+      "Tap RIGHT edge of A4 paper",
+      "Tap TOE of foot",
+      "Tap HEEL of foot",
+      "Done ✅",
+    ][step] ?? ""
+  );
 }
 
 /* ================= COMPONENT ================= */
@@ -50,227 +46,189 @@ export default function Home() {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [points, setPoints] = useState<Point[]>([]);
   const [result, setResult] = useState<Result | null>(null);
-  const [isMarking, setIsMarking] = useState<boolean>(false);
+  const [isMarking, setIsMarking] = useState(false);
 
-  /* ---------- IMAGE UPLOAD ---------- */
+  /* ---- Transform state ---- */
+  const [scale, setScale] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const isPanning = useRef(false);
+  const lastPos = useRef({ x: 0, y: 0 });
 
-  function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>): void {
+  /* ================= IMAGE LOAD ================= */
+
+  function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const img = new Image();
     img.onload = () => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
+      const canvas = canvasRef.current!;
       canvas.width = img.width;
       canvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
 
       setImage(img);
       setPoints([]);
       setResult(null);
-      setIsMarking(false);
+      setScale(1);
+      setOffset({ x: 0, y: 0 });
+
+      redraw(img, [], 1, { x: 0, y: 0 });
     };
 
     img.src = URL.createObjectURL(file);
   }
 
-  /* ---------- POINTER HANDLING ---------- */
+  /* ================= DRAW ================= */
 
-  function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>): void {
-    if (!isMarking || !image || points.length >= 4) return;
+  function redraw(
+    img: HTMLImageElement,
+    pts: Point[],
+    sc: number,
+    off: { x: number; y: number }
+  ) {
+    const canvas = canvasRef.current!;
+    const ctx = canvas.getContext("2d")!;
 
-    e.preventDefault();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    ctx.setTransform(sc, 0, 0, sc, off.x, off.y);
+    ctx.drawImage(img, 0, 0);
 
-    const rect = canvas.getBoundingClientRect();
-
-    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
-    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    ctx.fillStyle = points.length < 2 ? "#2563eb" : "#dc2626";
-
-    ctx.beginPath();
-    ctx.arc(x, y, 7, 0, Math.PI * 2);
-    ctx.fill();
-
-    setPoints((prev) => [...prev, { x, y }]);
+    pts.forEach((p, i) => {
+      ctx.fillStyle = i < 2 ? "#2563eb" : "#dc2626";
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 6 / sc, 0, Math.PI * 2);
+      ctx.fill();
+    });
   }
-
-  /* ---------- AUTO STOP MARKING ---------- */
 
   useEffect(() => {
-    if (points.length === 4) {
-      setIsMarking(false);
+    if (image) redraw(image, points, scale, offset);
+  }, [points, scale, offset]);
 
-      const paperWidthPx = distance(points[0], points[1]);
-      const footPx = distance(points[2], points[3]);
+  /* ================= POINTER ================= */
 
-      const mmPerPixel = 210 / paperWidthPx;
-      const footMM = footPx * mmPerPixel;
-
-      setResult({
-        mm: footMM.toFixed(1),
-        size: getShoeSize(footMM),
-      });
-    }
-  }, [points]);
-
-  /* ---------- RESET ---------- */
-
-  function resetMeasurement(): void {
-    if (!image || !canvasRef.current) return;
-
-    const ctx = canvasRef.current.getContext("2d");
-    if (!ctx) return;
-
-    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-    ctx.drawImage(image, 0, 0);
-
-    setPoints([]);
-    setResult(null);
-    setIsMarking(false);
+  function toImageCoords(e: React.PointerEvent): Point {
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const x = (e.clientX - rect.left - offset.x) / scale;
+    const y = (e.clientY - rect.top - offset.y) / scale;
+    return { x, y };
   }
+
+  function onPointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!image) return;
+
+    if (isMarking) {
+      if (points.length >= 4) return;
+      const p = toImageCoords(e);
+      setPoints((prev) => [...prev, p]);
+    } else {
+      isPanning.current = true;
+      lastPos.current = { x: e.clientX, y: e.clientY };
+    }
+  }
+
+  function onPointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!isPanning.current) return;
+
+    const dx = e.clientX - lastPos.current.x;
+    const dy = e.clientY - lastPos.current.y;
+
+    lastPos.current = { x: e.clientX, y: e.clientY };
+    setOffset((o) => ({ x: o.x + dx, y: o.y + dy }));
+  }
+
+  function onPointerUp() {
+    isPanning.current = false;
+  }
+
+  /* ================= ZOOM ================= */
+
+  function zoom(factor: number) {
+    setScale((s) => Math.min(4, Math.max(1, s * factor)));
+  }
+
+  /* ================= CALCULATION ================= */
+
+  useEffect(() => {
+    if (points.length !== 4) return;
+
+    setIsMarking(false);
+
+    const paperPx = distance(points[0], points[1]);
+    const footPx = distance(points[2], points[3]);
+
+    const mm = (footPx * A4_WIDTH_MM) / paperPx;
+
+    setResult({
+      mm: mm.toFixed(1),
+      size: getShoeSize(mm),
+    });
+  }, [points]);
 
   /* ================= UI ================= */
 
   return (
-    <main
-      style={{
-        maxWidth: 480,
-        margin: "auto",
-        padding: 16,
-        fontFamily: "system-ui, sans-serif",
-      }}
-    >
-      <h1 style={{ textAlign: "center" }}>👣 Foot Measurement</h1>
+    <main style={{ maxWidth: 500, margin: "auto", padding: 16 }}>
+      <h2 style={{ textAlign: "center" }}>👣 Foot Measurement</h2>
 
-      <p
-        style={{
-          textAlign: "center",
-          fontSize: 14,
-          color: "#555",
-        }}
-      >
-        Print A4 paper at <b>100%</b>, place foot, take top photo
+      <p style={{ fontSize: 13, textAlign: "center", color: "#555" }}>
+        Use pinch or buttons to zoom. Mark points accurately.
       </p>
 
-      {/* Instruction */}
       <div
         style={{
           background: "#eff6ff",
-          color: "#1e40af",
           padding: 10,
           borderRadius: 8,
           textAlign: "center",
           fontWeight: 600,
           marginBottom: 10,
-          fontSize: 14,
         }}
       >
         {getInstruction(points.length, isMarking)}
       </div>
 
-      {/* Upload */}
       <input
         type="file"
         accept="image/*"
         onChange={handleImageUpload}
-        style={{
-          width: "100%",
-          marginBottom: 10,
-          fontSize: 14,
-        }}
+        style={{ width: "100%", marginBottom: 10 }}
       />
 
       {/* Controls */}
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          marginBottom: 10,
-        }}
-      >
-        <button
-          onClick={() => setIsMarking(true)}
-          disabled={!image || isMarking}
-          style={{
-            flex: 1,
-            padding: 12,
-            borderRadius: 8,
-            background: isMarking ? "#2563eb" : "#e5e7eb",
-            color: isMarking ? "#fff" : "#000",
-            border: "none",
-            fontWeight: 600,
-          }}
-        >
-          {isMarking ? "Marking Enabled" : "Start Marking"}
-        </button>
-
-        <button
-          onClick={resetMeasurement}
-          style={{
-            flex: 1,
-            padding: 12,
-            borderRadius: 8,
-            background: "#111827",
-            color: "#fff",
-            border: "none",
-            fontWeight: 600,
-          }}
-        >
-          Reset
-        </button>
+      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+        <button onClick={() => zoom(1.2)}>＋</button>
+        <button onClick={() => zoom(0.8)}>－</button>
+        <button onClick={() => setIsMarking(true)}>Start Marking</button>
       </div>
 
-      {/* Canvas Container */}
-      <div
+      {/* Canvas */}
+      <canvas
+        ref={canvasRef}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
         style={{
-          maxHeight: "65vh",
-          overflow: "auto",
-          borderRadius: 10,
-          border: "1px solid #ddd",
+          width: "100%",
+          height: "70vh",
+          border: "1px solid #ccc",
+          touchAction: "none",
         }}
-      >
-        <canvas
-          ref={canvasRef}
-          onPointerDown={handlePointerDown}
-          style={{
-            width: "100%",
-            display: "block",
-            background: "#fafafa",
-            touchAction: isMarking ? "none" : "pan-y",
-          }}
-        />
-      </div>
+      />
 
-      {/* Result */}
       {result && (
         <div
           style={{
             marginTop: 16,
-            padding: 16,
-            borderRadius: 12,
+            padding: 12,
+            borderRadius: 10,
             background: "#f0fdf4",
-            border: "1px solid #bbf7d0",
           }}
         >
-          <h2 style={{ marginBottom: 8 }}>📏 Result</h2>
-          <p>
-            Foot Length: <b>{result.mm} mm</b>
-          </p>
-          <p>
-            Recommended Size: <b>{result.size}</b>
-          </p>
+          <b>Foot Length:</b> {result.mm} mm <br />
+          <b>Recommended Size:</b> {result.size}
         </div>
       )}
     </main>
