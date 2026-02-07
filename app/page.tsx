@@ -29,8 +29,7 @@ function getShoeSize(mm: number) {
 }
 
 function getInstruction(step: number, marking: boolean) {
-  if (!marking)
-    return "Pinch to zoom • Drag to move • Tap Start Marking when ready";
+  if (!marking) return "Pinch to zoom • Drag to move • Tap Start Marking";
 
   const steps = [
     "Tap LEFT edge of A4 paper",
@@ -39,7 +38,6 @@ function getInstruction(step: number, marking: boolean) {
     "Tap HEEL of foot",
     "Measurement complete ✅",
   ];
-
   return steps[step] ?? "";
 }
 
@@ -47,6 +45,8 @@ function getInstruction(step: number, marking: boolean) {
 
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
   const pointers = useRef<Map<number, { x: number; y: number }>>(new Map());
   const lastPinchDist = useRef<number | null>(null);
 
@@ -78,18 +78,22 @@ export default function Home() {
     ctx.drawImage(image, 0, 0);
     ctx.restore();
 
-    // Draw points
+    // MOBILE FRIENDLY POINTS
+    const radius = Math.max(14, 18 / transform.scale);
+
     points.forEach((p, i) => {
-      ctx.fillStyle = i < 2 ? "#2563eb" : "#dc2626";
+      const sx = p.x * transform.scale + transform.x;
+      const sy = p.y * transform.scale + transform.y;
+
       ctx.beginPath();
-      ctx.arc(
-        p.x * transform.scale + transform.x,
-        p.y * transform.scale + transform.y,
-        7,
-        0,
-        Math.PI * 2
-      );
+      ctx.arc(sx, sy, radius, 0, Math.PI * 2);
+      ctx.fillStyle = i < 2 ? "#2563eb" : "#dc2626";
       ctx.fill();
+
+      // white border for visibility
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#fff";
+      ctx.stroke();
     });
   }
 
@@ -104,11 +108,22 @@ export default function Home() {
     const img = new Image();
     img.onload = () => {
       const canvas = canvasRef.current!;
+      const container = containerRef.current!;
+
+      // Responsive fit to phone screen
+      const maxWidth = container.clientWidth;
+      const scale = maxWidth / img.width;
+
       canvas.width = img.width;
       canvas.height = img.height;
 
+      setTransform({
+        scale,
+        x: 0,
+        y: 0,
+      });
+
       setImage(img);
-      setTransform({ scale: 1, x: 0, y: 0 });
       setPoints([]);
       setResult(null);
       setIsMarking(false);
@@ -117,24 +132,22 @@ export default function Home() {
     img.src = URL.createObjectURL(file);
   }
 
-  /* ================= COORDINATE FIX (CRITICAL) ================= */
+  /* ================= COORDINATE FIX ================= */
 
   function getImageCoords(e: React.PointerEvent): Point {
     const canvas = canvasRef.current!;
     const rect = canvas.getBoundingClientRect();
 
-    // Screen → Canvas
-    const canvasX = ((e.clientX - rect.left) / rect.width) * canvas.width;
-    const canvasY = ((e.clientY - rect.top) / rect.height) * canvas.height;
+    const cx = ((e.clientX - rect.left) / rect.width) * canvas.width;
+    const cy = ((e.clientY - rect.top) / rect.height) * canvas.height;
 
-    // Canvas → Image (inverse transform)
     return {
-      x: (canvasX - transform.x) / transform.scale,
-      y: (canvasY - transform.y) / transform.scale,
+      x: (cx - transform.x) / transform.scale,
+      y: (cy - transform.y) / transform.scale,
     };
   }
 
-  /* ================= POINTER HANDLING ================= */
+  /* ================= POINTER EVENTS ================= */
 
   function onPointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
     e.preventDefault();
@@ -175,7 +188,7 @@ export default function Home() {
         const factor = d / lastPinchDist.current;
         setTransform((t) => ({
           ...t,
-          scale: Math.min(5, Math.max(1, t.scale * factor)),
+          scale: Math.min(6, Math.max(0.8, t.scale * factor)),
         }));
       }
       lastPinchDist.current = d;
@@ -208,7 +221,6 @@ export default function Home() {
     setPoints([]);
     setResult(null);
     setIsMarking(false);
-    setTransform({ scale: 1, x: 0, y: 0 });
   }
 
   /* ================= UI ================= */
@@ -240,11 +252,11 @@ export default function Home() {
           style={{
             flex: 1,
             padding: 12,
-            borderRadius: 8,
+            borderRadius: 10,
             background: isMarking ? "#2563eb" : "#e5e7eb",
             color: isMarking ? "#fff" : "#000",
             border: "none",
-            fontWeight: 600,
+            fontWeight: 700,
           }}
         >
           Start Marking
@@ -255,11 +267,11 @@ export default function Home() {
           style={{
             flex: 1,
             padding: 12,
-            borderRadius: 8,
+            borderRadius: 10,
             background: "#111827",
             color: "#fff",
             border: "none",
-            fontWeight: 600,
+            fontWeight: 700,
           }}
         >
           Reset
@@ -267,11 +279,12 @@ export default function Home() {
       </div>
 
       <div
+        ref={containerRef}
         style={{
           marginTop: 12,
-          border: "1px solid #ddd",
-          borderRadius: 12,
+          borderRadius: 14,
           overflow: "hidden",
+          border: "1px solid #ddd",
           touchAction: "none",
         }}
       >
@@ -290,7 +303,7 @@ export default function Home() {
           style={{
             marginTop: 16,
             padding: 16,
-            borderRadius: 12,
+            borderRadius: 14,
             background: "#f0fdf4",
             border: "1px solid #bbf7d0",
           }}
