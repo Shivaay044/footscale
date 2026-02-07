@@ -4,23 +4,22 @@ import { useEffect, useRef, useState } from "react";
 
 /* ================= TYPES ================= */
 
-type Point = {
+type Point = { x: number; y: number };
+type Result = { mm: string; size: string };
+
+type Transform = {
+  scale: number;
   x: number;
   y: number;
 };
 
-type Result = {
-  mm: string;
-  size: string;
-};
-
 /* ================= HELPERS ================= */
 
-function distance(p1: Point, p2: Point): number {
-  return Math.hypot(p2.x - p1.x, p2.y - p1.y);
+function distance(a: Point, b: Point) {
+  return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
-function getShoeSize(mm: number): string {
+function getShoeSize(mm: number) {
   if (mm < 240) return "UK 5";
   if (mm < 250) return "UK 6";
   if (mm < 260) return "UK 7";
@@ -29,16 +28,18 @@ function getShoeSize(mm: number): string {
   return "UK 10+";
 }
 
-function getInstruction(step: number, marking: boolean): string {
-  if (!marking) return "Scroll & adjust image. Tap “Start Marking” when ready.";
+function getInstruction(step: number, marking: boolean) {
+  if (!marking)
+    return "Pinch to zoom • Drag to move • Tap Start Marking when ready";
 
   const steps = [
-    "Step 1: Tap LEFT edge of A4 paper",
-    "Step 2: Tap RIGHT edge of A4 paper",
-    "Step 3: Tap TOE of foot",
-    "Step 4: Tap HEEL of foot",
+    "Tap LEFT edge of A4 paper",
+    "Tap RIGHT edge of A4 paper",
+    "Tap TOE of foot",
+    "Tap HEEL of foot",
     "Measurement complete ✅",
   ];
+
   return steps[step] ?? "";
 }
 
@@ -46,32 +47,68 @@ function getInstruction(step: number, marking: boolean): string {
 
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const pointers = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const lastPinchDist = useRef<number | null>(null);
 
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [points, setPoints] = useState<Point[]>([]);
   const [result, setResult] = useState<Result | null>(null);
-  const [isMarking, setIsMarking] = useState<boolean>(false);
+  const [isMarking, setIsMarking] = useState(false);
 
-  /* ---------- IMAGE UPLOAD ---------- */
+  const [transform, setTransform] = useState<Transform>({
+    scale: 1,
+    x: 0,
+    y: 0,
+  });
 
-  function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>): void {
+  /* ================= DRAW ================= */
+
+  function redraw() {
+    const canvas = canvasRef.current;
+    if (!canvas || !image) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.save();
+    ctx.translate(transform.x, transform.y);
+    ctx.scale(transform.scale, transform.scale);
+    ctx.drawImage(image, 0, 0);
+    ctx.restore();
+
+    // Draw points
+    points.forEach((p, i) => {
+      ctx.fillStyle = i < 2 ? "#2563eb" : "#dc2626";
+      ctx.beginPath();
+      ctx.arc(
+        p.x * transform.scale + transform.x,
+        p.y * transform.scale + transform.y,
+        7,
+        0,
+        Math.PI * 2
+      );
+      ctx.fill();
+    });
+  }
+
+  useEffect(redraw, [image, transform, points]);
+
+  /* ================= IMAGE UPLOAD ================= */
+
+  function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const img = new Image();
     img.onload = () => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
+      const canvas = canvasRef.current!;
       canvas.width = img.width;
       canvas.height = img.height;
 
-      ctx.drawImage(img, 0, 0);
-
       setImage(img);
+      setTransform({ scale: 1, x: 0, y: 0 });
       setPoints([]);
       setResult(null);
       setIsMarking(false);
@@ -80,131 +117,126 @@ export default function Home() {
     img.src = URL.createObjectURL(file);
   }
 
-  /* ---------- POINTER HANDLING ---------- */
+  /* ================= COORDINATE FIX (CRITICAL) ================= */
 
-  function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>): void {
-    if (!isMarking || !image || points.length >= 4) return;
-
-    e.preventDefault();
-
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
+  function getImageCoords(e: React.PointerEvent): Point {
+    const canvas = canvasRef.current!;
     const rect = canvas.getBoundingClientRect();
 
-    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
-    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+    // Screen → Canvas
+    const canvasX = ((e.clientX - rect.left) / rect.width) * canvas.width;
+    const canvasY = ((e.clientY - rect.top) / rect.height) * canvas.height;
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    ctx.fillStyle = points.length < 2 ? "#2563eb" : "#dc2626";
-
-    ctx.beginPath();
-    ctx.arc(x, y, 7, 0, Math.PI * 2);
-    ctx.fill();
-
-    setPoints((prev) => [...prev, { x, y }]);
+    // Canvas → Image (inverse transform)
+    return {
+      x: (canvasX - transform.x) / transform.scale,
+      y: (canvasY - transform.y) / transform.scale,
+    };
   }
 
-  /* ---------- AUTO STOP MARKING ---------- */
+  /* ================= POINTER HANDLING ================= */
+
+  function onPointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    e.preventDefault();
+    canvasRef.current?.setPointerCapture(e.pointerId);
+
+    pointers.current.set(e.pointerId, {
+      x: e.clientX,
+      y: e.clientY,
+    });
+
+    if (isMarking && points.length < 4 && pointers.current.size === 1) {
+      setPoints((p) => [...p, getImageCoords(e)]);
+    }
+  }
+
+  function onPointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!pointers.current.has(e.pointerId)) return;
+
+    const prev = pointers.current.get(e.pointerId)!;
+    const curr = { x: e.clientX, y: e.clientY };
+    pointers.current.set(e.pointerId, curr);
+
+    // PAN
+    if (pointers.current.size === 1 && !isMarking) {
+      setTransform((t) => ({
+        ...t,
+        x: t.x + (curr.x - prev.x),
+        y: t.y + (curr.y - prev.y),
+      }));
+    }
+
+    // PINCH ZOOM
+    if (pointers.current.size === 2) {
+      const pts = Array.from(pointers.current.values());
+      const d = distance(pts[0], pts[1]);
+
+      if (lastPinchDist.current) {
+        const factor = d / lastPinchDist.current;
+        setTransform((t) => ({
+          ...t,
+          scale: Math.min(5, Math.max(1, t.scale * factor)),
+        }));
+      }
+      lastPinchDist.current = d;
+    }
+  }
+
+  function onPointerUp(e: React.PointerEvent<HTMLCanvasElement>) {
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) lastPinchDist.current = null;
+  }
+
+  /* ================= MEASUREMENT ================= */
 
   useEffect(() => {
     if (points.length === 4) {
       setIsMarking(false);
 
-      const paperWidthPx = distance(points[0], points[1]);
+      const paperPx = distance(points[0], points[1]);
       const footPx = distance(points[2], points[3]);
-
-      const mmPerPixel = 210 / paperWidthPx;
-      const footMM = footPx * mmPerPixel;
+      const mm = (footPx * 210) / paperPx;
 
       setResult({
-        mm: footMM.toFixed(1),
-        size: getShoeSize(footMM),
+        mm: mm.toFixed(1),
+        size: getShoeSize(mm),
       });
     }
   }, [points]);
 
-  /* ---------- RESET ---------- */
-
-  function resetMeasurement(): void {
-    if (!image || !canvasRef.current) return;
-
-    const ctx = canvasRef.current.getContext("2d");
-    if (!ctx) return;
-
-    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-    ctx.drawImage(image, 0, 0);
-
+  function reset() {
     setPoints([]);
     setResult(null);
     setIsMarking(false);
+    setTransform({ scale: 1, x: 0, y: 0 });
   }
 
   /* ================= UI ================= */
 
   return (
-    <main
-      style={{
-        maxWidth: 480,
-        margin: "auto",
-        padding: 16,
-        fontFamily: "system-ui, sans-serif",
-      }}
-    >
-      <h1 style={{ textAlign: "center" }}>👣 Foot Measurement</h1>
+    <main style={{ maxWidth: 480, margin: "auto", padding: 16 }}>
+      <h2 style={{ textAlign: "center" }}>👣 Foot Measurement</h2>
 
-      <p
-        style={{
-          textAlign: "center",
-
-          fontSize: 14,
-          color: "#555",
-        }}
-      >
-        Print A4 paper at <b>100%</b>, place foot, take top photo
-      </p>
-
-      {/* Instruction */}
       <div
         style={{
-          background: "#eff6ff",
-          color: "#1e40af",
+          background: "#eef2ff",
           padding: 10,
           borderRadius: 8,
           textAlign: "center",
-          fontWeight: 600,
-          marginBottom: 10,
           fontSize: 14,
+          marginBottom: 10,
+          fontWeight: 600,
         }}
       >
         {getInstruction(points.length, isMarking)}
       </div>
 
-      {/* Upload */}
-      <input
-        type="file"
-        accept="image/*"
-        onChange={handleImageUpload}
-        style={{
-          width: "100%",
-          marginBottom: 10,
-          fontSize: 14,
-        }}
-      />
+      <input type="file" accept="image/*" onChange={handleImageUpload} />
 
-      {/* Controls */}
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          marginBottom: 10,
-        }}
-      >
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
         <button
           onClick={() => setIsMarking(true)}
-          disabled={!image || isMarking}
+          disabled={!image}
           style={{
             flex: 1,
             padding: 12,
@@ -215,11 +247,11 @@ export default function Home() {
             fontWeight: 600,
           }}
         >
-          {isMarking ? "Marking Enabled" : "Start Marking"}
+          Start Marking
         </button>
 
         <button
-          onClick={resetMeasurement}
+          onClick={reset}
           style={{
             flex: 1,
             padding: 12,
@@ -234,28 +266,25 @@ export default function Home() {
         </button>
       </div>
 
-      {/* Canvas Container */}
       <div
         style={{
-          maxHeight: "65vh",
-          overflow: "auto",
-          borderRadius: 10,
+          marginTop: 12,
           border: "1px solid #ddd",
+          borderRadius: 12,
+          overflow: "hidden",
+          touchAction: "none",
         }}
       >
         <canvas
           ref={canvasRef}
-          onPointerDown={handlePointerDown}
-          style={{
-            width: "100%",
-            display: "block",
-            background: "#fafafa",
-            touchAction: isMarking ? "none" : "pan-y",
-          }}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          style={{ width: "100%", display: "block" }}
         />
       </div>
 
-      {/* Result */}
       {result && (
         <div
           style={{
@@ -266,7 +295,7 @@ export default function Home() {
             border: "1px solid #bbf7d0",
           }}
         >
-          <h2 style={{ marginBottom: 8 }}>📏 Result</h2>
+          <h3>📏 Result</h3>
           <p>
             Foot Length: <b>{result.mm} mm</b>
           </p>
