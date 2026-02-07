@@ -25,17 +25,16 @@ function getShoeSize(mm: number): string {
 }
 
 function getInstruction(step: number, marking: boolean): string {
-  if (!marking) return "Zoom & pan image. Tap “Start Marking” when ready.";
+  if (!marking)
+    return "Zoom & pan image. Tap “Start Marking” when ready.";
 
-  return (
-    [
-      "Tap LEFT edge of A4 paper",
-      "Tap RIGHT edge of A4 paper",
-      "Tap TOE of foot",
-      "Tap HEEL of foot",
-      "Done ✅",
-    ][step] ?? ""
-  );
+  return [
+    "Tap LEFT edge of A4 paper",
+    "Tap RIGHT edge of A4 paper",
+    "Tap TOE of foot",
+    "Tap HEEL of foot",
+    "Done ✅",
+  ][step] ?? "";
 }
 
 /* ================= COMPONENT ================= */
