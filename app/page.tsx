@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 /* ================= TYPES ================= */
 
 type Point = { x: number; y: number };
-type Result = { mm: string; size: string };
+type Result = { mm: number };
 
 type Transform = {
   scale: number;
@@ -13,23 +13,37 @@ type Transform = {
   y: number;
 };
 
+type SizeSystem = "UK" | "US" | "IND";
+
 /* ================= HELPERS ================= */
 
 function distance(a: Point, b: Point) {
   return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
-function getShoeSize(mm: number) {
-  if (mm < 240) return "UK 5";
-  if (mm < 250) return "UK 6";
-  if (mm < 260) return "UK 7";
-  if (mm < 270) return "UK 8";
-  if (mm < 280) return "UK 9";
-  return "UK 10+";
+function getUKSize(mm: number) {
+  if (mm < 240) return 5;
+  if (mm < 250) return 6;
+  if (mm < 260) return 7;
+  if (mm < 270) return 8;
+  if (mm < 280) return 9;
+  return 10;
+}
+
+function convertSize(uk: number, system: SizeSystem) {
+  switch (system) {
+    case "US":
+      return uk + 1;
+    case "IND":
+      return uk;
+    default:
+      return uk;
+  }
 }
 
 function getInstruction(step: number, marking: boolean) {
-  if (!marking) return "Pinch to zoom • Drag to move • Tap Start Marking";
+  if (!marking)
+    return "Pinch to zoom • Drag to move • Tap Start Marking";
 
   const steps = [
     "Select LEFT edge of A4 paper",
@@ -55,6 +69,8 @@ export default function Home() {
   const [points, setPoints] = useState<Point[]>([]);
   const [previewPoint, setPreviewPoint] = useState<Point | null>(null);
   const [result, setResult] = useState<Result | null>(null);
+  const [showModal, setShowModal] = useState(false);
+  const [sizeSystem, setSizeSystem] = useState<SizeSystem>("UK");
   const [isMarking, setIsMarking] = useState(false);
 
   const [transform, setTransform] = useState<Transform>({
@@ -80,9 +96,8 @@ export default function Home() {
     ctx.drawImage(image, 0, 0);
     ctx.restore();
 
-    const radius = window.innerWidth < 768 ? 32 : 13;
+    const radius = window.innerWidth < 768 ? 18 : 12;
 
-    // Final points
     points.forEach((p, i) => {
       const sx = p.x * transform.scale + transform.x;
       const sy = p.y * transform.scale + transform.y;
@@ -96,7 +111,6 @@ export default function Home() {
       ctx.stroke();
     });
 
-    // Preview point (dashed)
     if (previewPoint) {
       const sx = previewPoint.x * transform.scale + transform.x;
       const sy = previewPoint.y * transform.scale + transform.y;
@@ -173,6 +187,7 @@ export default function Home() {
       setPoints([]);
       setPreviewPoint(null);
       setResult(null);
+      setShowModal(false);
       setIsMarking(false);
     };
 
@@ -273,9 +288,14 @@ export default function Home() {
       const paperPx = distance(points[0], points[1]);
       const footPx = distance(points[2], points[3]);
       const mm = (footPx * 210) / paperPx;
-      setResult({ mm: mm.toFixed(1), size: getShoeSize(mm) });
+      setResult({ mm });
+      setShowModal(true);
     }
   }, [points]);
+
+  const ukSize = result ? getUKSize(result.mm) : null;
+  const finalSize =
+    ukSize !== null ? convertSize(ukSize, sizeSystem) : null;
 
   /* ================= UI ================= */
 
@@ -388,23 +408,88 @@ export default function Home() {
         )}
       </div>
 
-      {result && (
+      {/* RESULT MODAL */}
+      {showModal && result && (
         <div
           style={{
-            marginTop: 16,
-            padding: 16,
-            borderRadius: 14,
-            background: "#f0fdf4",
-            border: "1px solid #bbf7d0",
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.45)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "flex-end",
+            zIndex: 50,
           }}
+          onClick={() => setShowModal(false)}
         >
-          <h3>📏 Result</h3>
-          <p>
-            Foot Length: <b>{result.mm} mm</b>
-          </p>
-          <p>
-            Recommended Size: <b>{result.size}</b>
-          </p>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff",
+              width: "100%",
+              maxWidth: 480,
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              padding: 20,
+            }}
+          >
+            <h3 style={{ textAlign: "center" }}>📏 Measurement Result</h3>
+
+            <p style={{ textAlign: "center", marginTop: 8 }}>
+              Foot Length: <b>{result.mm.toFixed(1)} mm</b>
+            </p>
+
+            <div style={{ marginTop: 12 }}>
+              <label style={{ fontWeight: 600 }}>Size System</label>
+              <select
+                value={sizeSystem}
+                onChange={(e) =>
+                  setSizeSystem(e.target.value as SizeSystem)
+                }
+                style={{
+                  width: "100%",
+                  marginTop: 6,
+                  padding: 12,
+                  borderRadius: 10,
+                  fontSize: 16,
+                }}
+              >
+                <option value="UK">UK</option>
+                <option value="US">US</option>
+                <option value="IND">IND</option>
+              </select>
+            </div>
+
+            <div
+              style={{
+                marginTop: 16,
+                padding: 16,
+                borderRadius: 14,
+                background: "#f0fdf4",
+                textAlign: "center",
+                fontSize: 18,
+                fontWeight: 800,
+              }}
+            >
+              Recommended Size: {finalSize}
+            </div>
+
+            <button
+              onClick={() => setShowModal(false)}
+              style={{
+                width: "100%",
+                marginTop: 16,
+                padding: 14,
+                borderRadius: 12,
+                background: "#111827",
+                color: "#fff",
+                fontWeight: 700,
+                border: "none",
+              }}
+            >
+              Close
+            </button>
+          </div>
         </div>
       )}
     </main>
