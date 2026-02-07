@@ -42,7 +42,7 @@ function getInstruction(step: number): string {
 
 /* ================= COMPONENT ================= */
 
-export default function Home(): JSX.Element {
+export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [image, setImage] = useState<HTMLImageElement | null>(null);
