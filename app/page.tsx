@@ -28,6 +28,11 @@ function getShoeSize(mm: number) {
   return "UK 10+";
 }
 
+function isTouchDevice() {
+  if (typeof window === "undefined") return false;
+  return "ontouchstart" in window || navigator.maxTouchPoints > 0;
+}
+
 function getInstruction(step: number, marking: boolean) {
   if (!marking) return "Pinch to zoom • Drag to move • Tap Start Marking";
 
@@ -78,8 +83,17 @@ export default function Home() {
     ctx.drawImage(image, 0, 0);
     ctx.restore();
 
-    // MOBILE FRIENDLY POINTS
-    const radius = Math.max(14, 18 / transform.scale);
+    // 🔴 DEVICE-AWARE DOT SIZE (KEY FIX)
+    const isTouch = isTouchDevice();
+    const screenW = window.innerWidth;
+
+    let baseRadius = 8; // desktop default
+
+    if (isTouch && screenW < 768) baseRadius = 16; // phones
+    else if (isTouch) baseRadius = 12; // tablets
+
+    // keep dot size constant on screen (do NOT shrink on zoom)
+    const radius = baseRadius;
 
     points.forEach((p, i) => {
       const sx = p.x * transform.scale + transform.x;
@@ -90,10 +104,14 @@ export default function Home() {
       ctx.fillStyle = i < 2 ? "#2563eb" : "#dc2626";
       ctx.fill();
 
-      // white border for visibility
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = "#fff";
+      // white border
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#ffffff";
       ctx.stroke();
+
+      // subtle shadow
+      ctx.shadowColor = "rgba(0,0,0,0.3)";
+      ctx.shadowBlur = 4;
     });
   }
 
@@ -110,15 +128,13 @@ export default function Home() {
       const canvas = canvasRef.current!;
       const container = containerRef.current!;
 
-      // Responsive fit to phone screen
-      const maxWidth = container.clientWidth;
-      const scale = maxWidth / img.width;
+      const fitScale = container.clientWidth / img.width;
 
       canvas.width = img.width;
       canvas.height = img.height;
 
       setTransform({
-        scale,
+        scale: fitScale,
         x: 0,
         y: 0,
       });
@@ -132,7 +148,7 @@ export default function Home() {
     img.src = URL.createObjectURL(file);
   }
 
-  /* ================= COORDINATE FIX ================= */
+  /* ================= COORDINATE CONVERSION ================= */
 
   function getImageCoords(e: React.PointerEvent): Point {
     const canvas = canvasRef.current!;
@@ -153,10 +169,7 @@ export default function Home() {
     e.preventDefault();
     canvasRef.current?.setPointerCapture(e.pointerId);
 
-    pointers.current.set(e.pointerId, {
-      x: e.clientX,
-      y: e.clientY,
-    });
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     if (isMarking && points.length < 4 && pointers.current.size === 1) {
       setPoints((p) => [...p, getImageCoords(e)]);
