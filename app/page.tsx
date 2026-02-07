@@ -80,7 +80,7 @@ export default function Home() {
     ctx.drawImage(image, 0, 0);
     ctx.restore();
 
-    const radius = window.innerWidth < 768 ? 18 : 12;
+    const radius = window.innerWidth < 768 ? 25 : 12;
 
     // Final points
     points.forEach((p, i) => {
