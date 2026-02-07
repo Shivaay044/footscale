@@ -31,8 +31,14 @@ function getUKSize(mm: number) {
 }
 
 function convertSize(uk: number, system: SizeSystem) {
-  if (system === "US") return uk + 1;
-  return uk; // UK & IND
+  switch (system) {
+    case "US":
+      return uk + 1;
+    case "IND":
+      return uk;
+    default:
+      return uk;
+  }
 }
 
 function getInstruction(step: number, marking: boolean) {
@@ -62,17 +68,17 @@ export default function Home() {
   const [points, setPoints] = useState<Point[]>([]);
   const [previewPoint, setPreviewPoint] = useState<Point | null>(null);
   const [result, setResult] = useState<Result | null>(null);
-
-  const [isMarking, setIsMarking] = useState(false);
-  const [showMagnifier, setShowMagnifier] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [sizeSystem, setSizeSystem] = useState<SizeSystem>("UK");
+  const [isMarking, setIsMarking] = useState(false);
 
   const [transform, setTransform] = useState<Transform>({
     scale: 1,
     x: 0,
     y: 0,
   });
+
+  const [showMagnifier, setShowMagnifier] = useState(false);
 
   /* ================= DRAW ================= */
 
@@ -177,21 +183,14 @@ export default function Home() {
 
       setTransform({ scale: fitScale, x: 0, y: 0 });
       setImage(img);
-      resetAll(false);
+      setPoints([]);
+      setPreviewPoint(null);
+      setResult(null);
+      setShowModal(false);
+      setIsMarking(false);
     };
 
     img.src = URL.createObjectURL(file);
-  }
-
-  /* ================= RESET ================= */
-
-  function resetAll(clearImage = true) {
-    setPoints([]);
-    setPreviewPoint(null);
-    setResult(null);
-    setShowModal(false);
-    setIsMarking(false);
-    if (clearImage) setImage(null);
   }
 
   /* ================= COORDS ================= */
@@ -275,6 +274,11 @@ export default function Home() {
     setPreviewPoint(null);
   }
 
+  function undoLast() {
+    setPoints((p) => p.slice(0, -1));
+    setResult(null);
+  }
+
   /* ================= MEASURE ================= */
 
   useEffect(() => {
@@ -312,10 +316,9 @@ export default function Home() {
 
       <input type="file" accept="image/*" onChange={handleImageUpload} />
 
-      {/* CONTROLS */}
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
         <button
-          onClick={() => setIsMarking((v) => !v)}
+          onClick={() => setIsMarking(true)}
           disabled={!image}
           style={{
             flex: 1,
@@ -331,18 +334,19 @@ export default function Home() {
         </button>
 
         <button
-          onClick={() => resetAll(true)}
+          onClick={undoLast}
+          disabled={points.length === 0}
           style={{
             flex: 1,
             padding: 12,
             borderRadius: 10,
-            background: "#111827",
+            background: "#374151",
             color: "#fff",
             fontWeight: 700,
             border: "none",
           }}
         >
-          Reset
+          Undo
         </button>
       </div>
 
@@ -357,6 +361,7 @@ export default function Home() {
             background: "#22c55e",
             color: "#fff",
             fontWeight: 800,
+            fontSize: 16,
             border: "none",
           }}
         >
@@ -411,6 +416,7 @@ export default function Home() {
             display: "flex",
             justifyContent: "center",
             alignItems: "flex-end",
+            zIndex: 50,
           }}
           onClick={() => setShowModal(false)}
         >
@@ -425,26 +431,30 @@ export default function Home() {
               padding: 20,
             }}
           >
-            <h3 style={{ textAlign: "center" }}>📏 Result</h3>
+            <h3 style={{ textAlign: "center" }}>📏 Measurement Result</h3>
 
-            <p style={{ textAlign: "center" }}>
+            <p style={{ textAlign: "center", marginTop: 8 }}>
               Foot Length: <b>{result.mm.toFixed(1)} mm</b>
             </p>
 
-            <select
-              value={sizeSystem}
-              onChange={(e) => setSizeSystem(e.target.value as SizeSystem)}
-              style={{
-                width: "100%",
-                marginTop: 12,
-                padding: 12,
-                borderRadius: 10,
-              }}
-            >
-              <option value="UK">UK</option>
-              <option value="US">US</option>
-              <option value="IND">IND</option>
-            </select>
+            <div style={{ marginTop: 12 }}>
+              <label style={{ fontWeight: 600 }}>Size System</label>
+              <select
+                value={sizeSystem}
+                onChange={(e) => setSizeSystem(e.target.value as SizeSystem)}
+                style={{
+                  width: "100%",
+                  marginTop: 6,
+                  padding: 12,
+                  borderRadius: 10,
+                  fontSize: 16,
+                }}
+              >
+                <option value="UK">UK</option>
+                <option value="US">US</option>
+                <option value="IND">IND</option>
+              </select>
+            </div>
 
             <div
               style={{
@@ -453,11 +463,28 @@ export default function Home() {
                 borderRadius: 14,
                 background: "#f0fdf4",
                 textAlign: "center",
+                fontSize: 18,
                 fontWeight: 800,
               }}
             >
               Recommended Size: {finalSize}
             </div>
+
+            <button
+              onClick={() => setShowModal(false)}
+              style={{
+                width: "100%",
+                marginTop: 16,
+                padding: 14,
+                borderRadius: 12,
+                background: "#111827",
+                color: "#fff",
+                fontWeight: 700,
+                border: "none",
+              }}
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
